@@ -1,0 +1,14 @@
+.env
+.venv/
+data/
+dist/
+config.json
+__pycache__/
+*.pyc
+watch/local.properties
+watch/.gradle/
+watch/.kotlin/
+watch/build/
+watch/app/build/
+.idea/
+*.log

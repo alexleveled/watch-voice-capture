@@ -1,0 +1,12 @@
+# Install torch from the CUDA index FIRST (WhisperX 3.8.6 pins torch 2.8):
+#   .venv\Scripts\python.exe -m pip install torch==2.8.0 torchaudio==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128
+whisperx==3.8.6
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart
+python-dotenv
+httpx
+icalendar>=6
+recurring-ical-events>=3
+# Only needed for the "Claude subscription" summary provider:
+claude-agent-sdk>=0.2.152

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Plain HTTP is allowed because Wi-Fi mode uploads to the PC's address on the home network
+     (http://192.168.x.x:8808), and Android can't allow-list a whole private range here.
+     Every upload still carries the bearer token. Tunnel mode uses HTTPS. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
