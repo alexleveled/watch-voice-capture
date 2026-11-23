@@ -820,6 +820,9 @@ function normalizeSettings(s) {
   s.summary.daily_time = s.summary.daily_time || '23:00';
   s.system = s.system || {};
   s.system.pause_when_busy = !!s.system.pause_when_busy;
+  s.secrets = s.secrets || {};
+  s.secrets.hf_token_set = !!s.secrets.hf_token_set;
+  s.secrets.calendar_url_set = !!s.secrets.calendar_url_set;
   return s;
 }
 
@@ -836,7 +839,7 @@ function healthBlockHtml(h) {
     ['Calendar', h.calendar ? 'Connected' : 'Not set up'],
   ];
   let html = '<dl class="kv">' + rows.map(r => '<dt>' + esc(r[0]) + '</dt><dd>' + r[1] + '</dd>').join('') + '</dl>';
-  if (!h.hf_token) html += '<div class="notice" style="margin-top:10px;margin-bottom:0">Speaker labels are off until a Hugging Face token is added.</div>';
+  if (!h.hf_token) html += '<div class="notice" style="margin-top:10px;margin-bottom:0">Speaker labels are off until a Hugging Face token is added under Voices, above.</div>';
   if (h.problems && h.problems.length) html += '<div style="margin-top:10px"><b>Problems</b>' + listHtml(h.problems) + '</div>';
   return html;
 }
@@ -911,6 +914,28 @@ function whenFieldsHtml(st) {
     '<div class="card-meta" id="sm-run-status"></div>';
 }
 
+const HF_MODEL_URL = 'https://huggingface.co/pyannote/speaker-diarization-community-1';
+const HF_TOKENS_URL = 'https://huggingface.co/settings/tokens';
+
+function hfFieldsHtml(st) {
+  const set = st.secrets.hf_token_set;
+  return '<ol class="steps"><li>Make a free account at huggingface.co.</li>' +
+      '<li>Open <a href="' + HF_MODEL_URL + '" target="_blank" rel="noopener">the speaker model page</a> and accept its terms.</li>' +
+      '<li>Create a read token on <a href="' + HF_TOKENS_URL + '" target="_blank" rel="noopener">your tokens page</a> and paste it here.</li></ol>' +
+    '<div class="field-row"><label for="sc-hf">Token</label><input type="password" id="sc-hf" class="wide" value="" autocomplete="off" spellcheck="false" placeholder="' + (set ? 'saved (type to replace)' : 'hf_...') + '"></div>' +
+    '<div class="btn-row" style="margin-top:6px"><button class="btn" type="button" id="sc-hf-save">Save token</button>' +
+      (set ? '<button class="btn" type="button" id="sc-hf-clear">Remove</button>' : '') + '</div>' +
+    '<div class="card-meta" id="sc-hf-status">' + (set ? 'A token is saved. Speaker labels are on for new recordings.' : 'No token yet. Every line is labeled as one speaker.') + '</div>';
+}
+
+function calFieldsHtml(st) {
+  const set = st.secrets.calendar_url_set;
+  return '<div class="field-row indent"><label for="sc-cal">Calendar link</label><input type="password" id="sc-cal" class="wide" value="" autocomplete="off" spellcheck="false" placeholder="' + (set ? 'saved (paste to replace)' : 'private iCal link, https://...') + '"></div>' +
+    '<div class="btn-row indent" style="margin-top:6px"><button class="btn" type="button" id="sc-cal-save">Save link</button>' +
+      (set ? '<button class="btn" type="button" id="sc-cal-clear">Remove</button>' : '') + '</div>' +
+    '<div class="card-meta indent" id="sc-cal-status">' + (set ? 'A calendar link is saved.' : 'In Google Calendar: Settings, your calendar, "Secret address in iCal format". The link is read-only and stays on this PC.') + '</div>';
+}
+
 function summaryFieldsHtml(st) {
   const sm = st.summary;
   const compat = sm.provider === 'openai_compatible';
@@ -956,10 +981,11 @@ async function renderSettings(token) {
     '<div class="settings">' +
 
     '<div class="s-group">Auto mode</div>' +
-    sRow('When to listen', 'Auto mode listens whenever the watch is on your wrist, unless you set weekly windows below. Calendar meetings also count once a calendar link is added (see SETUP.md).',
+    sRow('When to listen', 'Auto mode listens whenever the watch is on your wrist, unless you set weekly windows below. Calendar meetings also count once you paste a calendar link here.',
       '<label class="row-check"><input type="checkbox" id="st-always"' + (st.auto.always_while_worn ? ' checked' : '') + '> Listen whenever I\'m wearing it, even outside my windows</label>' +
       '<label class="row-check"><input type="checkbox" id="st-cal"' + (st.auto.calendar.enabled ? ' checked' : '') + '> Record calendar meetings</label>' +
-      '<div class="field-row indent"><label for="st-lead">Start</label><input type="number" id="st-lead" min="0" max="120" value="' + esc(st.auto.calendar.lead_min) + '"><label for="st-lead">minutes before the meeting</label></div>') +
+      '<div class="field-row indent"><label for="st-lead">Start</label><input type="number" id="st-lead" min="0" max="120" value="' + esc(st.auto.calendar.lead_min) + '"><label for="st-lead">minutes before the meeting</label></div>' +
+      '<div id="sc-cal-fields">' + calFieldsHtml(st) + '</div>') +
     sRow('Weekly time windows', 'Optional. Leave every day empty to listen all day. Add windows to limit auto mode to those hours.',
       '<div class="btn-row" style="margin:0 0 6px"><button type="button" class="btn small" id="st-copy-mon">Copy Monday to weekdays</button></div>' +
       '<div id="st-windows">' + windowsHtml(st) + '</div>') +
@@ -971,6 +997,8 @@ async function renderSettings(token) {
       '<label class="row-check"><input type="checkbox" id="st-batt"' + (st.upload.battery_saver ? ' checked' : '') + '> Battery saver: upload only on Wi-Fi or while charging</label>') +
 
     '<div class="s-group">Voices</div>' +
+    sRow('Speaker labels', 'Telling speakers apart uses a free model from Hugging Face, which needs a token. It is saved in the .env file on this PC and never shown again.',
+      '<div id="sc-hf-fields">' + hfFieldsHtml(st) + '</div>') +
     sRow('Enroll a voice', 'Read the paragraph out loud for about 30 seconds, or upload a clip. New recordings then label that person by name.',
       '<div class="field-row"><label for="en-name">Name</label><input type="text" id="en-name" value="" placeholder="Your name" style="max-width:240px"></div>' +
       '<label class="row-check"><input type="checkbox" id="en-self" checked> This is me</label>' +
@@ -1034,6 +1062,7 @@ async function renderSettings(token) {
     const out = JSON.parse(JSON.stringify(st));
     DAYS.forEach(([k]) => { out.auto.windows[k] = out.auto.windows[k].filter(w => w[0] && w[1]); });
     delete out.summary.api_key_set;
+    delete out.secrets;
     const key = $('#sm-key') ? $('#sm-key').value.trim() : '';
     if (key) out.summary.api_key = key;
     const res = await api('api/settings', { method: 'PUT', json: out });
@@ -1060,6 +1089,34 @@ async function renderSettings(token) {
     } catch (err) { fail(err); }
   });
   $('#st-busy').addEventListener('change', e => { st.system.pause_when_busy = e.target.checked; });
+
+  /* ---- secrets (written to .env on the PC) ---- */
+  const secretBox = (hostId, render, inputId, field, clearField, savedMsg, clearedMsg) => {
+    const host = $(hostId);
+    const send = async (secrets, msg) => {
+      const res = await api('api/settings', { method: 'PUT', json: { secrets } });
+      if (token !== state.nav) return;
+      if (res && res.secrets) st.secrets = normalizeSettings(res).secrets;
+      host.innerHTML = render(st);
+      host.querySelector('.card-meta').textContent = msg;
+      refreshHealth().then(h => { if (token === state.nav && $('#health-block')) $('#health-block').innerHTML = healthBlockHtml(h); });
+    };
+    host.addEventListener('click', async e => {
+      try {
+        if (e.target.closest(inputId + '-save')) {
+          const v = $(inputId).value.trim();
+          if (!v) { host.querySelector('.card-meta').textContent = 'Paste it in the box first.'; return; }
+          await send({ [field]: v }, savedMsg);
+        } else if (e.target.closest(inputId + '-clear')) {
+          await send({ [clearField]: true }, clearedMsg);
+        }
+      } catch (err) { fail(err); }
+    });
+  };
+  secretBox('#sc-hf-fields', hfFieldsHtml, '#sc-hf', 'hf_token', 'clear_hf_token',
+    'Saved. Speaker labels are on for new recordings.', 'Removed. Speaker labels are off.');
+  secretBox('#sc-cal-fields', calFieldsHtml, '#sc-cal', 'calendar_url', 'clear_calendar_url',
+    'Saved. Tick "Record calendar meetings" above and press Save changes to use it.', 'Removed.');
 
   smHost.addEventListener('click', async e => {
     if (!e.target.closest('#sm-test')) return;

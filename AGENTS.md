@@ -20,8 +20,8 @@ When the user says "set this up" (or similar), run the setup below. Work through
 3. **Settings file.** Copy `.env.example` to `.env` if there isn't one, then `python launch.py token`.
 4. **Ask the user** (one question, not one at a time):
    - Which AI should write the summaries: Claude subscription, ChatGPT subscription, an API key, or a free local model?
-   - Do they have a Hugging Face read token for speaker labels? If not, give them the two links from SETUP.md step 3 and wait. They can skip it and add it later.
-   Have the user paste secrets into `.env` themselves, or write them there for the user without echoing them back.
+   - Do they have a Hugging Face read token for speaker labels? If not, give them the link in SETUP.md step 4 and wait. They can skip it and add it later.
+   Secrets go in through the dashboard once it is running (step 6), so the user never has to edit `.env` and never has to paste a key into this chat.
 5. **Start it.** `python launch.py start`. Verify: `python launch.py status` shows the worker alive.
 6. **Set the provider.** Either walk the user through Settings > Summaries in the dashboard, or set it over the local API:
    `PUT http://127.0.0.1:8808/api/settings` with `{"summary": {"provider": "...", "model": "...", "base_url": "...", "api_key": "..."}}`.
@@ -29,6 +29,7 @@ When the user says "set this up" (or similar), run the setup below. Work through
    - Claude: `claude auth status` must show logged in. If not, the user runs `claude login`.
    - Codex: `codex --version` must work. If not, `npm i -g @openai/codex`, then the user runs `codex login`.
    - Local: follow "Using a free local model" in SETUP.md. Check that Ollama (`http://localhost:11434/v1/models`) or LM Studio (`http://localhost:1234/v1/models`) answers and use a model name from that list. Suggest a small model (7B to 12B). Ask before downloading one, since it is several GB.
+   - **Keys.** Point the user at the dashboard fields and let them paste: Hugging Face token under Settings > Voices > Speaker labels, API key under Settings > Summaries, calendar link under Settings > Auto mode. Each saves to `.env`. If the user would rather hand you a key, send it with the same endpoint, `{"secrets": {"hf_token": "..."}}` or `{"secrets": {"calendar_url": "..."}}`, and don't echo it back. `GET /api/settings` reports `secrets.hf_token_set` and `secrets.calendar_url_set`, never the values.
    - With a local model, ask whether they game, edit or render on this PC. If yes, suggest `"when": "daily"` with a `daily_time`, and `{"system": {"pause_when_busy": true}}` (same settings endpoint).
 7. **Prove the PC side.** Upload a short speech clip: `POST /api/upload` with a `file` form field. Poll `GET /api/conversations/<recording_id>` until `status` is `done`. The first run downloads models and can take several minutes. Show the user the title and summary.
 8. **Pair the watch.** This needs the user's hands. Give them SETUP.md step 5, one instruction at a time, and run the `adb pair` and `adb connect` commands for them with the numbers they read out. Verify with `adb devices`.

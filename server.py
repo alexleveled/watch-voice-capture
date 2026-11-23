@@ -482,6 +482,7 @@ async def enroll(file: UploadFile = File(...), name: str = Form("Me"), is_self: 
 def _settings_out(s: dict) -> dict:
     """Settings for the dashboard. The API key itself never leaves the PC, only whether one is saved."""
     s["summary"]["api_key_set"] = bool(config.summary_api_key())
+    s["secrets"] = {"hf_token_set": bool(config.hf_token()), "calendar_url_set": bool(config.calendar_ics_url())}
     return s
 
 
@@ -566,9 +567,32 @@ async def put_settings(request: Request):
         if summ.get("clear_api_key"):
             config.set_env_value("SUMMARY_API_KEY", "")
             changed = True
+        # Secrets typed into Settings are written to .env. "" keeps what is saved; clear_* removes it.
+        sec = body.get("secrets") or {}
+        hf = str(sec.get("hf_token") or "").strip()
+        if hf:
+            if len(hf) > 300 or " " in hf:
+                raise HTTPException(422, "that doesn't look like a Hugging Face token")
+            config.set_env_value("HF_TOKEN", hf)
+            changed = True
+        if sec.get("clear_hf_token"):
+            config.set_env_value("HF_TOKEN", "")
+            if config.hf_token():          # an older HUGGINGFACE_TOKEN line is still set
+                config.set_env_value("HUGGINGFACE_TOKEN", "")
+            changed = True
+        cal_url = str(sec.get("calendar_url") or "").strip()
+        if cal_url:
+            if len(cal_url) > 2000 or not re.match(r"^(https?|webcal)://\S+$", cal_url):
+                raise HTTPException(422, "the calendar link must start with https:// or webcal://")
+            config.set_env_value("CALENDAR_ICS_URL", cal_url)
+            changed = True
+        if sec.get("clear_calendar_url"):
+            config.set_env_value("CALENDAR_ICS_URL", "")
+            changed = True
+        s.pop("secrets", None)
         db.set_kv(c, "settings", s)
         if changed:
-            db.set_kv(c, "summary_changed_at", db.now_iso())   # the worker retries paused summaries
+            db.set_kv(c, "summary_changed_at", db.now_iso())   # the worker re-reads .env and retries paused summaries
         return _settings_out(s)
     finally:
         c.close()

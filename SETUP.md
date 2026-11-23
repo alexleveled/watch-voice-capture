@@ -40,8 +40,15 @@ python launch.py token
 
 The second command creates the upload token the watch will use and saves it in `.env`.
 
-**Speaker labels (recommended).** Make a free account at huggingface.co, open
-https://huggingface.co/pyannote/speaker-diarization-community-1 and accept the terms, then create a read token under Settings > Access Tokens. Put it in `.env` as `HF_TOKEN=`. Without it every line is labeled as one speaker.
+You don't have to edit `.env` by hand after this. The keys you add yourself are all entered in the dashboard, which saves them to `.env` for you:
+
+| What | Where in the dashboard |
+|---|---|
+| Hugging Face token (speaker labels) | Settings > Voices > Speaker labels |
+| AI provider API key | Settings > Summaries > AI provider |
+| Calendar link (optional) | Settings > Auto mode > When to listen |
+
+A saved key is never shown again. The box just says "saved", and you can replace or remove it.
 
 ## 4. Start it and pick your AI
 
@@ -49,7 +56,11 @@ https://huggingface.co/pyannote/speaker-diarization-community-1 and accept the t
 python launch.py start
 ```
 
-Open http://127.0.0.1:8808 and go to **Settings > Summaries**. Pick a provider and press **Save and test**.
+Open http://127.0.0.1:8808 and go to **Settings**.
+
+**Speaker labels (recommended).** Under **Voices > Speaker labels**, follow the three steps shown there: make a free account at huggingface.co, accept the terms on https://huggingface.co/pyannote/speaker-diarization-community-1, create a read token, paste it in and press **Save token**. Without it every line is labeled as one speaker.
+
+**Summaries.** Under **Summaries**, pick a provider and press **Save and test**.
 
 | Provider | What to do first |
 |---|---|
@@ -166,7 +177,9 @@ When you're finished, turn Wireless debugging off on the watch. The recorder doe
 
 ## Optional: record calendar meetings
 
-Put your calendar's private iCal link in `.env` as `CALENDAR_ICS_URL=`, restart, and tick **Record calendar meetings** in Settings. In Google Calendar the link is under Settings > your calendar > "Secret address in iCal format". Auto mode then also opens for meetings that have attendees or a video-call link.
+In the dashboard, go to **Settings > Auto mode > When to listen**. Paste your calendar's private iCal link into **Calendar link** and press **Save link**, then tick **Record calendar meetings** and press **Save changes**. In Google Calendar the link is under Settings > your calendar > "Secret address in iCal format". Auto mode then also opens for meetings that have attendees or a video-call link.
+
+The link is read-only and there is no sign-in to your calendar account. Treat it like a password anyway: anyone who has it can read your calendar. It is stored only in the `.env` file on your PC.
 
 ## Optional: upload from anywhere (tunnel mode)
 
@@ -186,7 +199,7 @@ Wi-Fi mode only uploads at home. To upload from anywhere, put the PC behind a tu
 | Watch says "rejected: check tokens" | The token in `.env` changed. Run `python tools/setup_watch.py --config-only`. |
 | `adb devices` shows nothing or "offline" | `adb disconnect`, then `adb connect` again with the address on the Wireless debugging screen. The port changes each time debugging is switched on. |
 | "More than one device" | The watch can show up twice. Pass `--serial <address:port>` to the setup script. |
-| Every line is "Speaker A" | No `HF_TOKEN` in `.env`, or the model terms weren't accepted. |
+| Every line is "Speaker A" | No Hugging Face token saved (Settings > Voices > Speaker labels), or the model terms weren't accepted. |
 | Summaries never appear | Settings > Summaries > Save and test shows the exact error. Also check "When to summarize": on the daily or manual setting they wait on purpose. |
 | Recordings sit at "queued" | "Wait while the PC is busy" is on and something is loading the GPU or CPU. Pipeline status shows the reason. |
 | Dashboard says "wrong Python" | Start it with `python launch.py start`, which uses the `.venv` in this folder. |

@@ -44,6 +44,8 @@ Already cloned it? Open the folder and say "Set this up for me."
 
 The agent reads [AGENTS.md](AGENTS.md), installs everything, checks each step, and stops to ask you for the few things only you can do (pairing the watch, the Hugging Face token).
 
+Your keys go in through the dashboard, not a text file. Settings has a box for the Hugging Face token (Voices), the AI provider API key (Summaries) and the optional calendar link (Auto mode). Each one is saved to a local `.env` file on your PC and is never shown again.
+
 To do it by hand, follow [SETUP.md](SETUP.md). Plan on about an hour, most of it downloads.
 
 ## How it works

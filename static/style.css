@@ -454,3 +454,8 @@ a.hit:hover { background: var(--panel-2); }
 .field-row label[for^="sm-"] { flex: 0 0 76px; }
 .field-row input.wide { flex: 1 1 260px; min-width: 0; max-width: 460px; width: auto; }
 .field-row input[type="time"] { width: auto; }
+
+/* setup steps inside a settings card */
+ol.steps { margin: 0 0 8px; padding-left: 20px; font-size: 13.5px; color: var(--text-2); line-height: 1.6; }
+.btn-row.indent, .card-meta.indent { padding-left: 26px; }
+.field-row label[for^="sc-"] { flex: 0 0 96px; }
