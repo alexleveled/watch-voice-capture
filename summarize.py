@@ -220,16 +220,23 @@ def _compatible(prompt: str, system: str, schema: dict, model: str, base_url: st
     # Strict schema first; endpoints that don't support it get plain JSON mode, then no hint at all.
     formats = [{"type": "json_schema", "json_schema": {"name": "summary", "strict": True, "schema": schema}},
                {"type": "json_object"}, None]
+    extra = dict(config.tunables().get("summary_extra_body") or {})
+    # Small local models often "think" for a minute before a ten second answer. A summary doesn't need it,
+    # so thinking is switched off on local endpoints (measured on Qwen 3.5 9B: 34 s -> 4 s). Servers that
+    # don't know the field get one retry without it. Override with "reasoning_effort" in summary_extra_body.
+    attempts = [(fmt, extra) for fmt in formats]
+    if is_local({"provider": "openai_compatible", "base_url": base_url}) and "reasoning_effort" not in extra:
+        attempts.insert(0, (formats[0], {**extra, "reasoning_effort": "none"}))
     last = ""
-    for fmt in formats:
-        body = {"model": model, "messages": messages}
+    for n, (fmt, more) in enumerate(attempts):
+        body = {**more, "model": model, "messages": messages}
         if fmt:
             body["response_format"] = fmt
         try:
-            r = httpx.post(url, headers=headers, json=body, timeout=600)
+            r = httpx.post(url, headers=headers, json=body, timeout=900)
         except httpx.HTTPError as e:
             raise SummaryError(f"can't reach {url}: {e}") from e
-        if r.status_code in (400, 404, 415, 422, 501) and fmt is not None:
+        if r.status_code in (400, 404, 415, 422, 501) and n < len(attempts) - 1:
             last = r.text[:300]
             continue
         if r.status_code >= 400:
@@ -260,6 +267,34 @@ def _run(prompt: str, system: str, schema: dict, cfg: dict) -> dict:
     return _normalize(out, schema)
 
 
+def is_local(cfg: dict) -> bool:
+    """True when summaries run on this PC (Ollama, LM Studio...), so they compete with other work."""
+    if (cfg.get("provider") or "") != "openai_compatible":
+        return False
+    return bool(re.match(r"^https?://(localhost|127\.0\.0\.1|\[::1\])[:/]", (cfg.get("base_url") or "") + "/"))
+
+
+CONTEXT_ERROR = re.compile(r"context|too long|too many tokens|maximum.{0,20}tokens|token limit", re.I)
+PART_CHARS = 18_000   # about 3,000 words: fits an 8K-token context with room for the answer
+
+MERGE_SYSTEM = """You are given summaries of consecutive parts of ONE long recorded conversation, in order.
+Merge them into a single summary of the whole conversation. Keep every concrete fact, number, date, name,
+decision and action item. Remove repeats. Plain and concrete, no filler. Return only the JSON object."""
+
+
+def _parts(transcript: str) -> list[str]:
+    parts, cur, size = [], [], 0
+    for line in transcript.splitlines():
+        if size + len(line) > PART_CHARS and cur:
+            parts.append("\n".join(cur))
+            cur, size = [], 0
+        cur.append(line)
+        size += len(line) + 1
+    if cur:
+        parts.append("\n".join(cur))
+    return parts
+
+
 def conversation(transcript: str, when: str, duration_min: float, trigger: str, meeting: str | None,
                  cfg: dict, wearer: str | None = None) -> dict:
     head = f"Recorded {when}, {duration_min:.0f} min, trigger: {trigger}."
@@ -268,7 +303,20 @@ def conversation(transcript: str, when: str, duration_min: float, trigger: str, 
     # ~150k chars is far beyond any realistic single conversation; trim the middle if it ever happens.
     if len(transcript) > 150_000:
         transcript = transcript[:75_000] + "\n[... middle trimmed ...]\n" + transcript[-75_000:]
-    return _run(f"{head}\n\nTranscript:\n{transcript}", _conv_system(wearer), CONV_SCHEMA, cfg)
+    system = _conv_system(wearer)
+    try:
+        return _run(f"{head}\n\nTranscript:\n{transcript}", system, CONV_SCHEMA, cfg)
+    except SummaryError as e:
+        parts = _parts(transcript)
+        if not CONTEXT_ERROR.search(str(e)) or len(parts) < 2:
+            raise
+    # The conversation doesn't fit the model's context (common with local models, which often load at
+    # 4K-8K tokens). Summarize it in parts, then merge the part summaries.
+    notes = []
+    for n, part in enumerate(parts, 1):
+        s = _run(f"{head} This is part {n} of {len(parts)} of the conversation.\n\nTranscript:\n{part}", system, CONV_SCHEMA, cfg)
+        notes.append(f"PART {n} of {len(parts)}\n{json.dumps(s, ensure_ascii=False)}")
+    return _run(f"{head}\n\nPart summaries:\n\n" + "\n\n".join(notes), MERGE_SYSTEM, CONV_SCHEMA, cfg)
 
 
 def day(day_label: str, items: list[dict], cfg: dict, wearer: str | None = None) -> dict:

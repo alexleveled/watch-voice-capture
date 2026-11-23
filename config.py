@@ -46,6 +46,11 @@ DEFAULTS = {
     "day_rebuild_debounce_minutes": 20,
     "keep_audio": False,              # delete audio once the transcript is saved
     "calendar_all_timed_events": False,  # true = every timed calendar event counts as a meeting
+    "gpu_busy_percent": 50,           # "wait while the PC is busy": hold work at or above this GPU load...
+    "cpu_busy_percent": 80,           # ...or this CPU load, sustained over a few seconds
+    # Extra fields added to every request to an OpenAI-compatible endpoint, e.g. LM Studio's
+    # idle unload: {"ttl": 300}. Leave empty for cloud services, which reject unknown fields.
+    "summary_extra_body": {},
 }
 
 

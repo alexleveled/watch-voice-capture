@@ -9,6 +9,9 @@ Loop, every few seconds:
   4. one transcribed recording: AI summary        [the provider chosen in Settings > Summaries]
   5. dirty days: daily digest                     [same provider]
   6. drop GPU models after idle
+
+Settings > Summaries decides when steps 4-5 run (right away, one daily batch, or only on request).
+Settings > System can hold steps 2-3 (and local-model summaries) while the PC is busy with other work.
 """
 
 from __future__ import annotations
@@ -103,10 +106,12 @@ def process_recording(c, eng: transcribe.Engine, r) -> None:
         match_speakers(c, rid, res.speakers)
         store.refresh_transcript(c, rid)
         status = "transcribed" if words else "empty"
+        # Placeholder title from the first words, so the list reads well before a summary exists.
+        opening = " ".join(" ".join(s["text"] for s in res.segments[:3]).split()[:7])
         c.execute("""update recordings set status=?, error=null, duration_s=?, speech_s=?, words=?, ended_at=?,
-                     updated_at=? where id=?""",
+                     title=coalesce(title, ?), updated_at=? where id=?""",
                   (status, res.duration_s, sum(v["speech_s"] for v in res.speakers.values()), words, ended,
-                   db.now_iso(), rid))
+                   (opening + "...") if opening else None, db.now_iso(), rid))
         db.mark_day_dirty(c, r["day"])
     if not config.tunables()["keep_audio"]:
         shutil.rmtree(config.AUDIO_DIR / rid, ignore_errors=True)
@@ -138,8 +143,8 @@ def summarize_recording(c, r) -> None:
     if (r["words"] or 0) < cfg["min_words_to_summarize"]:
         first = (r["transcript_text"] or "").split(":", 1)[-1].strip()
         title = (" ".join(first.split()[:6]) + "...") if first else "Short exchange"
-        c.execute("update recordings set status='done', title=?, summary_json=null, summary_text=null, updated_at=? where id=?",
-                  (title, db.now_iso(), rid))
+        c.execute("""update recordings set status='done', title=?, summary_json=null, summary_text=null,
+                     summary_requested=0, updated_at=? where id=?""", (title, db.now_iso(), rid))
         db.mark_day_dirty(c, r["day"])
         return
     c.execute("update recordings set status='summarizing', updated_at=? where id=?", (db.now_iso(), rid))
@@ -147,8 +152,9 @@ def summarize_recording(c, r) -> None:
     s = summarize.conversation(r["transcript_text"], when, (r["duration_s"] or 0) / 60, r["trigger"], meeting_title(r),
                                db.settings(c)["summary"], wearer(c))
     with db.tx(c):
-        c.execute("""update recordings set status='done', error=null, title=?, summary_json=?, summary_text=?, updated_at=?
-                     where id=?""", (s.get("title"), json.dumps(s), store.summary_text(s), db.now_iso(), rid))
+        c.execute("""update recordings set status='done', error=null, title=?, summary_json=?, summary_text=?,
+                     summary_requested=0, updated_at=? where id=?""",
+                  (s.get("title"), json.dumps(s), store.summary_text(s), db.now_iso(), rid))
         db.mark_day_dirty(c, r["day"])
     log(f"{rid}: summarized: {s.get('title')}")
 
@@ -210,9 +216,70 @@ def run_jobs(c, eng: transcribe.Engine) -> None:
 def fail(c, rid: str, stage: str, e: Exception, retry_status: str) -> None:
     attempts = c.execute("select attempts from recordings where id=?", (rid,)).fetchone()[0] + 1
     status = "failed" if attempts >= MAX_ATTEMPTS else retry_status
-    c.execute("update recordings set status=?, attempts=?, error=?, updated_at=? where id=?",
+    c.execute("update recordings set status=?, attempts=?, error=?, summary_requested=0, updated_at=? where id=?",
               (status, attempts, f"{stage}: {e}"[:800], db.now_iso(), rid))
     log(f"{rid}: {stage} error ({attempts}/{MAX_ATTEMPTS}): {e}")
+
+
+# ---- when to work -----------------------------------------------------------------
+
+def busy_reason() -> str | None:
+    """"GPU 87%" / "CPU 93%" when something else has kept this PC loaded for the last few seconds.
+
+    Called only while our own models are not running a job, so the load measured is other software's.
+    The lowest of three samples is used: a short spike never blocks, steady load does.
+    """
+    cfg = config.tunables()
+    gpu, cpu = [], []
+    try:
+        import psutil
+        import pynvml
+        try:
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        except Exception:
+            handle = None
+        for _ in range(3):
+            cpu.append(psutil.cpu_percent(interval=1.0))
+            if handle is not None:
+                gpu.append(pynvml.nvmlDeviceGetUtilizationRates(handle).gpu)
+    except Exception as e:
+        log(f"busy check unavailable ({e}); not waiting")
+        return None
+    if gpu and min(gpu) >= cfg["gpu_busy_percent"]:
+        return f"GPU {min(gpu):.0f}%"
+    if cpu and min(cpu) >= cfg["cpu_busy_percent"]:
+        return f"CPU {min(cpu):.0f}%"
+    return None
+
+
+def batch_active(c, cfg: dict) -> bool:
+    """Is a summary batch running? The daily schedule starts one; so does "Summarize pending now"."""
+    b = db.get_kv(c, "summary_batch") or {}
+    if cfg.get("when") == "daily":
+        now = datetime.now()
+        try:
+            hh, mm = (int(x) for x in (cfg.get("daily_time") or "23:00").split(":"))
+        except ValueError:
+            hh, mm = 23, 0
+        sched = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if sched > now:
+            sched -= timedelta(days=1)          # the most recent scheduled time, even if the PC was off then
+        if not b.get("last_at"):
+            b = {"active": bool(b.get("active")), "last_at": now.isoformat(timespec="seconds")}
+            db.set_kv(c, "summary_batch", b)
+        elif b["last_at"] < sched.isoformat(timespec="seconds"):
+            b = {"active": True, "last_at": now.isoformat(timespec="seconds")}
+            db.set_kv(c, "summary_batch", b)
+            log("daily summary batch started")
+    return bool(b.get("active"))
+
+
+def end_batch(c) -> None:
+    b = db.get_kv(c, "summary_batch") or {}
+    if b.get("active"):
+        db.set_kv(c, "summary_batch", {**b, "active": False})
+        log("summary batch finished")
 
 
 # ---- main loop ------------------------------------------------------------------
@@ -228,16 +295,47 @@ def main() -> None:
     c.execute("update recordings set status='transcribed' where status='summarizing'")
     log("worker started")
     while True:
-        state = "idle"
+        state, busy = "idle", None
         try:
+            settings = db.settings(c)
+            summ = settings["summary"]
             jobs = c.execute("select count(*) from jobs where status='queued'").fetchone()[0]
-            if jobs:
+            ready = ready_recordings(c)
+
+            # A provider change or a new API key in Settings ends the pause right away.
+            stamp = db.get_kv(c, "summary_changed_at")
+            if stamp and stamp != getattr(main, "_seen_stamp", None):
+                main._seen_stamp = stamp
+                summary_wait_until = 0.0
+                config.reload_env()
+
+            # What summary work is allowed right now?
+            todo, batch = None, False
+            if time.time() >= summary_wait_until:
+                settle = (datetime.now(timezone.utc) - timedelta(seconds=RESUMMARIZE_SETTLE_S)).isoformat()
+                batch = batch_active(c, summ)
+                if summ.get("when", "now") == "now" or batch:
+                    todo = c.execute("""select * from recordings where status='transcribed' and updated_at < ?
+                                        order by started_at limit 1""", (settle,)).fetchone()
+                else:   # daily (outside its batch) or manual: only what the user asked for
+                    # ...plus exchanges too short to need an AI summary, which cost nothing to finish.
+                    todo = c.execute("""select * from recordings where status='transcribed' and updated_at < ?
+                                        and (summary_requested=1 or coalesce(words,0) < ?)
+                                        order by started_at limit 1""",
+                                     (settle, config.tunables()["min_words_to_summarize"])).fetchone()
+            run_days = time.time() >= summary_wait_until and (summ.get("when", "now") == "now" or batch)
+            days_due = due_days(c)[:1] if run_days and not todo else []
+
+            local_summary = summarize.is_local(summ) and bool(todo or days_due)
+            if settings["system"]["pause_when_busy"] and (jobs or ready or local_summary):
+                busy = busy_reason()
+
+            if jobs and not busy:
                 state = "enrolling"
                 db.set_kv(c, "worker_heartbeat", {"at": db.now_iso(), "state": state})
                 run_jobs(c, eng)
 
-            ready = ready_recordings(c)
-            if ready:
+            if ready and not busy:
                 r = ready[0]
                 state = "transcribing"
                 db.set_kv(c, "worker_heartbeat", {"at": db.now_iso(), "state": state})
@@ -253,26 +351,20 @@ def main() -> None:
                 except Exception as e:
                     traceback.print_exc()
                     fail(c, r["id"], "transcribe", e, "waiting")
+            elif ready:
+                c.execute("update recordings set status='waiting' where status='receiving' and id in (%s)"
+                          % ",".join("?" * len(ready)), [r["id"] for r in ready])
 
-            # A provider change or a new API key in Settings ends the pause right away.
-            stamp = db.get_kv(c, "summary_changed_at")
-            if stamp and stamp != getattr(main, "_seen_stamp", None):
-                main._seen_stamp = stamp
-                summary_wait_until = 0.0
-                config.reload_env()
-            if time.time() >= summary_wait_until:
-                settle = (datetime.now(timezone.utc) - timedelta(seconds=RESUMMARIZE_SETTLE_S)).isoformat()
-                todo = c.execute("""select * from recordings where status='transcribed' and updated_at < ?
-                                    order by started_at limit 1""", (settle,)).fetchone()
+            if (todo or days_due) and not (busy and local_summary):
                 try:
                     if todo:
                         state = "summarizing"
                         db.set_kv(c, "worker_heartbeat", {"at": db.now_iso(), "state": state})
                         summarize_recording(c, todo)
                     else:
-                        for day in due_days(c)[:1]:
-                            state = "daily digest"
-                            rebuild_day(c, day)
+                        state = "daily digest"
+                        db.set_kv(c, "worker_heartbeat", {"at": db.now_iso(), "state": state})
+                        rebuild_day(c, days_due[0])
                 except Exception as e:
                     if not isinstance(e, summarize.SummaryError):
                         traceback.print_exc()
@@ -280,7 +372,13 @@ def main() -> None:
                     if todo:
                         fail(c, todo["id"], "summary", e, "transcribed")
                     summary_wait_until = time.time() + 600
+            elif batch and not todo and not days_due and not ready:
+                pending = c.execute("select count(*) from recordings where status in ('transcribed','summarizing')").fetchone()[0]
+                if not pending:
+                    end_batch(c)
 
+            if busy:
+                state = f"waiting, the PC is busy ({busy})"
             eng.maybe_unload()
         except Exception as e:
             traceback.print_exc()

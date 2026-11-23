@@ -28,7 +28,8 @@ When the user says "set this up" (or similar), run the setup below. Work through
    Providers: `claude_subscription`, `codex_subscription`, `openai_compatible`. Then `POST /api/summary/test` and check for `"ok": true`. If it fails, the `error` field says why.
    - Claude: `claude auth status` must show logged in. If not, the user runs `claude login`.
    - Codex: `codex --version` must work. If not, `npm i -g @openai/codex`, then the user runs `codex login`.
-   - Local: check that Ollama (`http://localhost:11434/v1/models`) or LM Studio (`http://localhost:1234/v1/models`) answers and use a model name from that list.
+   - Local: follow "Using a free local model" in SETUP.md. Check that Ollama (`http://localhost:11434/v1/models`) or LM Studio (`http://localhost:1234/v1/models`) answers and use a model name from that list. Suggest a small model (7B to 12B). Ask before downloading one, since it is several GB.
+   - With a local model, ask whether they game, edit or render on this PC. If yes, suggest `"when": "daily"` with a `daily_time`, and `{"system": {"pause_when_busy": true}}` (same settings endpoint).
 7. **Prove the PC side.** Upload a short speech clip: `POST /api/upload` with a `file` form field. Poll `GET /api/conversations/<recording_id>` until `status` is `done`. The first run downloads models and can take several minutes. Show the user the title and summary.
 8. **Pair the watch.** This needs the user's hands. Give them SETUP.md step 5, one instruction at a time, and run the `adb pair` and `adb connect` commands for them with the numbers they read out. Verify with `adb devices`.
 9. **Firewall.** SETUP.md step 6. Admin command, so ask first.
@@ -60,4 +61,6 @@ When the user says "set this up" (or similar), run the setup below. Work through
 - WorkManager uploads use `ExistingWorkPolicy.REPLACE` so a fresh upload isn't stuck behind an old retry delay.
 - WhisperX 3.8.6 pins torch 2.8. Install torch from the cu128 index before the requirements file.
 - Don't run the server with `uvicorn --reload`.
+- Local models: `summarize.py` sends `reasoning_effort: none` to local endpoints and splits conversations that exceed the model's context. If a local summary takes over a minute, check that the model's thinking is really off before changing anything else. `POST /api/summary/test` returns the seconds taken.
+- If you are running inside VS Code, your shell has `ELECTRON_RUN_AS_NODE=1` set. LM Studio (and any Electron app) won't start from it, and `lms` reports "no valid installation was found". Clear the variable for that command first.
 - Don't set `JAVA_HOME` for the gradle build unless it is missing. A wrong one breaks it.

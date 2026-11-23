@@ -119,7 +119,10 @@ DEFAULT_SETTINGS = {
     "merge": {"gap_min": 10},
     # Which AI writes the summaries. provider: claude_subscription | codex_subscription | openai_compatible.
     # model "" = the provider's default. base_url is only used by openai_compatible. The API key lives in .env.
-    "summary": {"provider": "claude_subscription", "model": "", "base_url": ""},
+    # when: now (a minute after each conversation) | daily (one batch at daily_time) | manual (only on request).
+    "summary": {"provider": "claude_subscription", "model": "", "base_url": "", "when": "now", "daily_time": "23:00"},
+    # Hold transcription and local-model summaries while something else is loading the GPU or CPU.
+    "system": {"pause_when_busy": False},
 }
 
 
@@ -155,6 +158,9 @@ def tx(con: sqlite3.Connection):
 def init() -> None:
     con = connect()
     con.executescript(SCHEMA)
+    cols = {r["name"] for r in con.execute("pragma table_info(recordings)")}
+    if "summary_requested" not in cols:   # "summarize this one now", for the daily and manual schedules
+        con.execute("alter table recordings add column summary_requested integer not null default 0")
     con.close()
 
 
@@ -180,6 +186,7 @@ def settings(con) -> dict:
     merged["silence"].update(s.get("silence", {}))
     merged["merge"].update(s.get("merge", {}))
     merged["summary"].update(s.get("summary", {}))
+    merged["system"].update(s.get("system", {}))
     return merged
 
 

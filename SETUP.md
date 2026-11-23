@@ -56,11 +56,49 @@ Open http://127.0.0.1:8808 and go to **Settings > Summaries**. Pick a provider a
 | Claude subscription | Install Claude Code and run `claude login` once |
 | ChatGPT subscription | `npm i -g @openai/codex`, then `codex login` once |
 | API key | Pick the service, paste the key, type the model name your service uses |
-| Local model | Install Ollama or LM Studio, download a model, type its name. No key needed |
+| Local model | See "Using a free local model" below. No key needed |
 
 Then scroll to **Test upload**, send any audio file with speech in it, and open the conversation. The first run downloads the speech models, so give it a few minutes. When you see a transcript and a summary, the PC side is done.
 
 Other commands: `python launch.py status`, `stop`, `restart`. Logs are in `data\server.log` and `data\worker.log`.
+
+### Using a free local model
+
+A summary is an easy job, so a small model is enough. A model in the 7B to 12B range (about 5 to 8 GB) fits on the GPU next to the transcription models.
+
+**Ollama**
+
+```powershell
+winget install Ollama.Ollama
+ollama pull <model>
+```
+
+Pick a small instruct model from ollama.com/library. In Settings > Summaries choose "API key or local model", service **Ollama**, and type the model name exactly as `ollama list` shows it.
+
+**LM Studio**
+
+```powershell
+lms get qwen/qwen3.5-9b
+lms server start
+```
+
+Choose service **LM Studio** and type the model name as `lms ls` shows it. In LM Studio's server settings, keep "Just-in-Time model loading" on.
+
+**Thinking is switched off for you.** Many small models "think" for a long time before answering, which a summary doesn't need. On local endpoints the app asks the model not to (it sends `reasoning_effort: none`). On Qwen 3.5 9B that cut a short summary from 34 seconds to 4. If your model ignores that setting and summaries take a minute or more, turn reasoning off in the model's own settings, or pick a model without a thinking mode.
+
+**Long conversations.** Local models often load with a small context (LM Studio defaulted to 8,192 tokens here, which is about 30 minutes of talk). When a conversation doesn't fit, the app summarizes it in parts and merges them, so nothing fails. For better results on long meetings, raise the model's context length to 16K or 32K in LM Studio or Ollama if your GPU has the memory.
+
+**The model does not stay loaded.** Both tools load the model when a summary is requested and unload it after it has been idle (Ollama after 5 minutes by default, LM Studio after its idle time). To set LM Studio's idle time from this app, create `config.json` in this folder with `{"summary_extra_body": {"ttl": 300}}` (seconds).
+
+To keep the PC free during the day, also look at **When to summarize** in Settings:
+
+| Setting | What happens |
+|---|---|
+| Right away | Each conversation is summarized about a minute after it ends |
+| Once a day | Transcripts appear right away. All summaries and the digest run in one batch at the time you pick. If the PC was off then, the batch runs when it is next on |
+| Only when I ask | Nothing is summarized until you press "Summarize pending now" in Settings or "Re-summarize" on a conversation |
+
+And under Settings > System, **Wait while the PC is busy** holds transcription and local-model summaries while other programs are using the GPU or CPU heavily (a game, a render). Recordings wait in the queue and are processed when the PC calms down.
 
 ## 5. Connect the watch
 
@@ -149,5 +187,6 @@ Wi-Fi mode only uploads at home. To upload from anywhere, put the PC behind a tu
 | `adb devices` shows nothing or "offline" | `adb disconnect`, then `adb connect` again with the address on the Wireless debugging screen. The port changes each time debugging is switched on. |
 | "More than one device" | The watch can show up twice. Pass `--serial <address:port>` to the setup script. |
 | Every line is "Speaker A" | No `HF_TOKEN` in `.env`, or the model terms weren't accepted. |
-| Summaries never appear | Settings > Summaries > Save and test shows the exact error. |
+| Summaries never appear | Settings > Summaries > Save and test shows the exact error. Also check "When to summarize": on the daily or manual setting they wait on purpose. |
+| Recordings sit at "queued" | "Wait while the PC is busy" is on and something is loading the GPU or CPU. Pipeline status shows the reason. |
 | Dashboard says "wrong Python" | Start it with `python launch.py start`, which uses the `.venv` in this folder. |

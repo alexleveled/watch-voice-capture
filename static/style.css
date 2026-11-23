@@ -453,3 +453,4 @@ a.hit:hover { background: var(--panel-2); }
 .field-row select { flex: 1 1 260px; min-width: 0; max-width: 460px; width: auto; }
 .field-row label[for^="sm-"] { flex: 0 0 76px; }
 .field-row input.wide { flex: 1 1 260px; min-width: 0; max-width: 460px; width: auto; }
+.field-row input[type="time"] { width: auto; }

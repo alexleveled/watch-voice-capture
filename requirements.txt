@@ -6,6 +6,8 @@ uvicorn>=0.30
 python-multipart
 python-dotenv
 httpx
+psutil>=6
+nvidia-ml-py
 icalendar>=6
 recurring-ical-events>=3
 # Only needed for the "Claude subscription" summary provider:

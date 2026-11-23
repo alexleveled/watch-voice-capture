@@ -16,6 +16,7 @@ Tap the watch to record a conversation. Your PC transcribes it with speaker name
   - any API key (OpenAI, Gemini, Anthropic, OpenRouter)
   - a free local model (Ollama or LM Studio)
 - **A daily digest** of everything you recorded that day.
+- **Easy on your PC.** Summarize right away, in one batch at a set time, or only when you ask. It can also wait while you game or render.
 - **Keyword search** across every conversation.
 - **No audio kept.** The watch deletes each clip once the PC confirms it arrived. The PC deletes the audio once the transcript is saved.
 
@@ -71,9 +72,9 @@ data/voice.db (SQLite)  ->  dashboard at http://127.0.0.1:8808
 
 ## What has and hasn't been tested
 
-Tested: this code was built and used on a Galaxy Watch7 and an RTX 4060 Ti, uploading through a Cloudflare tunnel. In this public version, a Galaxy Watch7 recorded and uploaded over home Wi-Fi with the released watch app, and the PC pipeline, the Claude subscription provider, the Wi-Fi mode network rules and the calendar parser were each tested. The API-key path was tested against a stand-in server.
+Tested: this code was built and used on a Galaxy Watch7 and an RTX 4060 Ti, uploading through a Cloudflare tunnel. In this public version, a Galaxy Watch7 recorded and uploaded over home Wi-Fi with the released watch app, and the PC pipeline, the Claude subscription provider, the Wi-Fi mode network rules and the calendar parser were each tested. The API-key path was tested against a stand-in server. The local-model path was tested on LM Studio with Qwen 3.5 9B (Q4): 10 to 20 seconds per summary with thinking off for conversations up to 30 minutes, about a minute for a 1 hour one. Planted facts were all kept in synthetic 10, 30 and 60 minute transcripts, and 5 of 6 in a 2 hour one. The summary schedule and the busy-PC wait were tested with forced conditions.
 
-Not tested yet: real OpenAI, Gemini, Ollama and LM Studio endpoints, the Codex CLI provider, other watches, CPU-only transcription, and calendar links from Outlook. If one of these works or breaks for you, open an issue.
+Not tested yet: real OpenAI, Gemini and Ollama endpoints, local-model quality on real (not synthetic) long conversations, the busy-PC thresholds against a real game or render, the Codex CLI provider, other watches, CPU-only transcription, and calendar links from Outlook. If one of these works or breaks for you, open an issue.
 
 ## License
 

@@ -130,7 +130,7 @@ const TERMINAL = ['done', 'empty', 'failed'];
 function statusPill(status) {
   if (!status || status === 'done') return '';
   const cls = status === 'failed' ? 'pill bad' : (status === 'empty' ? 'pill' : 'pill warn');
-  const label = { waiting: 'queued', empty: 'no speech' }[status] || status;
+  const label = { waiting: 'queued', empty: 'no speech', transcribed: 'summary pending' }[status] || status;
   return '<span class="' + cls + '">' + esc(label) + '</span>';
 }
 function triggerBadge(t) { return t ? '<span class="badge">' + esc(t) + '</span>' : ''; }
@@ -816,6 +816,10 @@ function normalizeSettings(s) {
   s.summary.model = s.summary.model || '';
   s.summary.base_url = s.summary.base_url || '';
   s.summary.api_key_set = !!s.summary.api_key_set;
+  s.summary.when = s.summary.when || 'now';
+  s.summary.daily_time = s.summary.daily_time || '23:00';
+  s.system = s.system || {};
+  s.system.pause_when_busy = !!s.system.pause_when_busy;
   return s;
 }
 
@@ -885,6 +889,27 @@ const PROVIDER_HELP = {
   codex_subscription: 'Uses the Codex CLI signed in with your ChatGPT account (run "codex login" once). No API charges. Leave the model empty for the Codex default.',
   openai_compatible: 'Any service with an OpenAI-style API. Cloud services need a key and bill per use. Ollama and LM Studio run on this PC for free and need no key.',
 };
+
+const WHEN = [
+  ['now', 'Right away, a minute after each conversation'],
+  ['daily', 'Once a day, all at a set time'],
+  ['manual', 'Only when I ask'],
+];
+const WHEN_HELP = {
+  now: 'Each conversation is summarized about a minute after it ends.',
+  daily: 'Transcripts appear right away. Summaries and the daily digest run in one batch at this time. If the PC was off then, the batch runs when it is next on.',
+  manual: 'Transcripts appear right away. Nothing is summarized until you press "Summarize pending now" here, or "Re-summarize" on a conversation.',
+};
+
+function whenFieldsHtml(st) {
+  const sm = st.summary;
+  return '<div class="field-row"><label for="sm-when">When</label><select id="sm-when">' +
+      WHEN.map(([v, l]) => '<option value="' + v + '"' + (sm.when === v ? ' selected' : '') + '>' + esc(l) + '</option>').join('') + '</select>' +
+      (sm.when === 'daily' ? '<input type="time" id="sm-time" value="' + esc(sm.daily_time) + '" aria-label="Daily summary time">' : '') + '</div>' +
+    '<p class="card-meta" style="margin:0 0 10px">' + esc(WHEN_HELP[sm.when] || '') + '</p>' +
+    (sm.when !== 'now' ? '<div class="btn-row" style="margin-top:6px"><button class="btn" type="button" id="sm-run">Summarize pending now</button></div>' : '') +
+    '<div class="card-meta" id="sm-run-status"></div>';
+}
 
 function summaryFieldsHtml(st) {
   const sm = st.summary;
@@ -965,10 +990,14 @@ async function renderSettings(token) {
     '<div class="s-group">Summaries</div>' +
     sRow('AI provider', 'Which AI writes the conversation summaries and the daily digest. Transcription always runs on this PC.',
       '<div id="sm-fields">' + summaryFieldsHtml(st) + '</div>') +
+    sRow('When to summarize', 'Summaries are light on a cloud provider. With a local model you may want them batched, so the model only loads once a day.',
+      '<div id="sm-when-fields">' + whenFieldsHtml(st) + '</div>') +
 
     '<div class="s-group">System</div>' +
     sRow('Pipeline status', 'Transcription runs on this PC. Summaries use the provider chosen above.',
       '<div id="health-block">' + healthBlockHtml(health) + '</div>') +
+    sRow('Busy PC', 'Useful if you game, edit video or render on this PC. Recordings wait in the queue and are processed when the PC calms down.',
+      '<label class="row-check"><input type="checkbox" id="st-busy"' + (st.system.pause_when_busy ? ' checked' : '') + '> Wait while the PC is busy (heavy GPU or CPU use by other programs)</label>') +
     sRow('Test upload', 'Send any audio file through the full pipeline, as if the watch had recorded it.',
       '<div class="btn-row" style="margin-top:0"><label class="btn file-btn">Choose audio file<input type="file" id="up-file" accept="audio/*"></label>' +
       '<button class="btn primary" type="button" id="up-btn" hidden>Upload</button></div>' +
@@ -1014,6 +1043,24 @@ async function renderSettings(token) {
     smHost.innerHTML = summaryFieldsHtml(st);
     $('#sm-status').textContent = status;
   };
+  const whenHost = $('#sm-when-fields');
+  whenHost.addEventListener('change', e => {
+    if (e.target.id === 'sm-when') { st.summary.when = e.target.value; whenHost.innerHTML = whenFieldsHtml(st); }
+    else if (e.target.id === 'sm-time' && e.target.value) st.summary.daily_time = e.target.value;
+  });
+  whenHost.addEventListener('click', async e => {
+    if (!e.target.closest('#sm-run')) return;
+    try {
+      await saveSettings();
+      const r = await api('api/summary/run', { method: 'POST' });
+      if (token !== state.nav) return;
+      $('#sm-run-status').textContent = r && r.pending
+        ? 'Started. Summarizing ' + r.pending + ' conversation' + (r.pending === 1 ? '' : 's') + ', then the daily digest.'
+        : 'Nothing is waiting for a summary. Any digest that needs a refresh will run.';
+    } catch (err) { fail(err); }
+  });
+  $('#st-busy').addEventListener('change', e => { st.system.pause_when_busy = e.target.checked; });
+
   smHost.addEventListener('click', async e => {
     if (!e.target.closest('#sm-test')) return;
     try {

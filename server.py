@@ -313,8 +313,8 @@ async def name_speaker(rec_id: str, label: str, request: Request):
 def resummarize(rec_id: str):
     c = con()
     try:
-        n = c.execute("""update recordings set status='transcribed', error=null, updated_at=?
-                         where id=? and transcript_text is not null""", (db.now_iso(), rec_id)).rowcount
+        n = c.execute("""update recordings set status='transcribed', error=null, attempts=0, summary_requested=1,
+                         updated_at=? where id=? and transcript_text is not null""", (db.now_iso(), rec_id)).rowcount
     finally:
         c.close()
     if not n:
@@ -543,6 +543,21 @@ async def put_settings(request: Request):
                     raise HTTPException(422, "base URL must start with http:// or https://")
                 changed |= s["summary"][k] != v
                 s["summary"][k] = v
+        if "when" in summ:
+            if summ["when"] not in ("now", "daily", "manual"):
+                raise HTTPException(422, "summary schedule must be now, daily or manual")
+            if summ["when"] == "daily" and s["summary"]["when"] != "daily":
+                # Start counting from now, so switching to daily doesn't fire a batch on the spot.
+                b = db.get_kv(c, "summary_batch") or {}
+                db.set_kv(c, "summary_batch", {"active": bool(b.get("active")),
+                                               "last_at": datetime.now().isoformat(timespec="seconds")})
+            s["summary"]["when"] = summ["when"]
+        if "daily_time" in summ:
+            if not TIME_RE.match(str(summ["daily_time"] or "")):
+                raise HTTPException(422, "daily summary time must look like 23:00")
+            s["summary"]["daily_time"] = summ["daily_time"]
+        if "pause_when_busy" in (body.get("system") or {}):
+            s["system"]["pause_when_busy"] = bool(body["system"]["pause_when_busy"])
         if "api_key" in summ:      # "" keeps the saved key; clear_api_key removes it
             key = str(summ["api_key"] or "").strip()
             if key:
@@ -571,6 +586,20 @@ def summary_test():
         return summarize.test(cfg)
     except Exception as e:
         return {"ok": False, "error": str(e)[:500]}
+
+
+@app.post("/api/summary/run")
+def summary_run():
+    """Summarize everything that is waiting, now. Used by the daily and manual schedules."""
+    c = con()
+    try:
+        n = c.execute("select count(*) from recordings where status='transcribed'").fetchone()[0]
+        b = db.get_kv(c, "summary_batch") or {}
+        db.set_kv(c, "summary_batch", {**b, "active": True})
+        db.set_kv(c, "summary_changed_at", db.now_iso())   # also clears a 10 minute error pause
+    finally:
+        c.close()
+    return {"ok": True, "pending": n}
 
 
 @app.post("/api/upload")
